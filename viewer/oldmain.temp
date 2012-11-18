@@ -1,0 +1,212 @@
+package main
+
+import (
+	"fmt"
+	gls "github.com/vron/fm/gl"
+	"github.com/jteeuwen/glfw"
+	gl "github.com/chsc/gogl/gl21"
+	"log"
+	"os"
+	"runtime"
+	"time"
+)
+
+const (
+	Title  = "Spinning Gopher"
+	Width  = 640
+	Height = 480
+)
+
+var positionBufferObject gl.Uint
+var myProgram gl.Uint
+
+// Matrixes
+var (
+	modelToWorldMatrix gl.Int
+	worldToCameraMatrix gl.Int
+	cameraToClipMatrix gl.Int
+)
+
+var (
+	fzNear = 1.0
+	fzFar = 1000.0
+)
+
+func main() {
+	runtime.GOMAXPROCS(4)
+	log.SetFlags(log.Lshortfile)
+	if err := glfw.Init(); err != nil {
+		fmt.Fprintf(os.Stderr, "glfw: %s\n", err)
+		return
+	}
+	defer glfw.Terminate()
+
+	//glfw.OpenWindowHint(glfw.Windowed, 1)
+
+	if err := glfw.OpenWindow(Width, Height, 0, 0, 0, 0, 16, 0, glfw.Windowed); err != nil {
+		fmt.Fprintf(os.Stderr, "glfw: %s\n", err)
+		return
+	}
+	defer glfw.CloseWindow()
+
+	glfw.SetSwapInterval(2)
+	glfw.SetWindowTitle(Title)
+
+	if err := gl.Init(); err != nil {
+		fmt.Fprintf(os.Stderr, "gl: %s\n", err)
+	}
+
+	if err := initScene(); err != nil {
+		fmt.Fprintf(os.Stderr, "init: %s\n", err)
+		return
+	}
+	defer destroyScene()
+
+	// We should also listen for input!
+	/*go func() {
+		str := ""
+		fmt.Scanln(str)
+		fmt.Println(str)
+	}()
+*/
+	now := time.Now()
+	its := 0
+	go func() {
+		for {
+		time.Sleep(25*time.Second)
+		fmt.Println("fps: ", float64(its)/float64(time.Since(now).Seconds()))
+	}
+	}()
+	for glfw.WindowParam(glfw.Opened) == 1 {
+		drawScene()
+		glfw.SwapBuffers()
+		its++
+	}
+}
+
+func initScene() error {
+	// Vertex buffers
+	gl.GenBuffers(1, &positionBufferObject)
+	
+	gl.BindBuffer(gl.ARRAY_BUFFER, positionBufferObject)
+	gl.BufferData(gl.ARRAY_BUFFER, gl.Sizeiptr(4*len(vertexPositions)), gl.Pointer(&vertexPositions[0]), gl.STATIC_DRAW)
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+
+
+	// Store the uniforms somewhere
+	modelToWorldMatrix  = gls.GetUniformLocation(myProgram,"modelToWorldMatrix")
+	worldToCameraMatrix = gls.GetUniformLocation(myProgram,"worldToCameraMatrix")
+	cameraToClipMatrix = gls.GetUniformLocation(myProgram,"cameraToWorldMatrix")
+
+	// InitializeProgram
+	shaderList := make([]gl.Uint,0)
+	shaderList = append(shaderList, CreateShader(gl.VERTEX_SHADER, vertexShader))
+	shaderList = append(shaderList, CreateShader(gl.FRAGMENT_SHADER, fragmentShader))
+
+	myProgram = CreateProgram(shaderList)
+	for _,v := range shaderList {
+		gl.DeleteShader(v)
+	}
+	return nil
+}
+
+func destroyScene() {
+
+}
+
+// Shaders
+var (
+	vertexShader string = `
+#version 330
+
+layout(location = 0) in vec4 position;
+
+uniform mat4 cameraToClipMatrix;
+uniform mat4 worldToCameraMatrix;
+uniform mat4 modelToWorldMatrix;
+
+void main()
+{
+	vec4 temp = modelToWorldMatrix * position;
+	temp = worldToCameraMatrix * temp;
+	gl_Position = cameraToClipMatrix * position;
+}
+`
+	fragmentShader string = `
+#version 330
+
+out vec4 outputColor;
+void main()
+{
+	outputColor = vec4(1.0f,1.0f,1.0f,1.0f);
+}
+`
+)
+
+var vertexPositions = []float32{
+	0.75, 0.75, 0, 1,
+	0.75, -0.75, 0.0, 1.0,
+	-0.75, -0.75, 0.0, 1.0,
+}
+
+func drawScene() {
+	gl.ClearColor(0,0,0,0)
+	gl.Clear(gl.COLOR_BUFFER_BIT);
+
+	gl.UseProgram(myProgram)
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, positionBufferObject)
+	gl.EnableVertexAttribArray(0)
+	gl.VertexAttribPointer(0,4,gl.FLOAT, gl.FALSE, 0, nil)
+
+	gl.DrawArrays(gl.TRIANGLES, 0, 3)
+
+	gl.DisableVertexAttribArray(0)
+	gl.UseProgram(0)
+
+}
+
+func CreateShader(typ gl.Enum, code string) gl.Uint {
+	shader := gl.CreateShader(typ)
+	cst := gl.GLString(code)
+	defer gl.GLStringFree(cst)
+	gl.ShaderSource(shader, 1, &cst, nil)
+
+	gl.CompileShader(shader)
+
+	var status gl.Int
+	gl.GetShaderiv(shader, gl.COMPILE_STATUS, &status)
+	
+	if (status == gl.FALSE) {
+		var length gl.Int
+		gl.GetShaderiv(shader, gl.INFO_LOG_LENGTH, &length)
+		
+		logStr := gl.GLStringAlloc(gl.Sizei(length+1))
+		// TODO: defer
+		gl.GetShaderInfoLog(shader, gl.Sizei(length), nil, logStr)
+		log.Println(gl.GoString(logStr))
+	}
+	return shader
+}
+
+func CreateProgram(shaderList []gl.Uint) gl.Uint {
+	program := gl.CreateProgram()
+
+	for _, v := range shaderList {
+		gl.AttachShader(program, v)
+	}
+
+	gl.LinkProgram(program)
+
+	var status gl.Int
+	gl.GetProgramiv(program, gl.LINK_STATUS, &status)
+	if (status == gl.FALSE) {
+		var length gl.Int
+		gl.GetProgramiv(program, gl.INFO_LOG_LENGTH, &length)
+		
+		logStr := gl.GLStringAlloc(gl.Sizei(length+1))
+		gl.GetProgramInfoLog(program, gl.Sizei(length), nil, logStr)
+		log.Println(logStr)
+	}
+	return program
+}

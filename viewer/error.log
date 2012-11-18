@@ -1,0 +1,6 @@
+2012/11/15 23:00:35 Starting
+gl.go:115: 1 35633 0x7f03b44dac50
+gl.go:115: 2 35632 0x7f03b4803b20
+main.go:102: Resizing  [1.8106601 0 0 0 0 2.4142134 0 0 0 0 -1.002002 -1 0 0 -2.002002 0]
+lua.go:103: Non matching number of arguments
+lua.go:103: Non matching number of arguments
